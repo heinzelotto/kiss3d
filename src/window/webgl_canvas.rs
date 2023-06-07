@@ -101,6 +101,22 @@ impl Drop for WebGLCanvas {
     }
 }
 
+pub async fn sleep(delay: std::time::Duration) {
+    let mut cb = |resolve: js_sys::Function, _reject: js_sys::Function| {
+        web_sys::window()
+            .unwrap()
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                &resolve,
+                delay.as_millis() as i32,
+            )
+            .unwrap();
+    };
+
+    let p = js_sys::Promise::new(&mut cb);
+
+    wasm_bindgen_futures::JsFuture::from(p).await.unwrap();
+}
+
 impl AbstractCanvas for WebGLCanvas {
     fn open(
         _: &str,
@@ -431,10 +447,15 @@ impl AbstractCanvas for WebGLCanvas {
             let f = Rc::new(RefCell::new(None));
             let g: Rc<RefCell<Option<Closure<_>>>> = f.clone();
             *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
+                let h = f.clone();
                 if callback(0.0) {
-                    let _ = window.request_animation_frame(
-                        f.borrow().as_ref().unwrap().as_ref().unchecked_ref(),
-                    );
+                    wasm_bindgen_futures::spawn_local(async move {
+                        // TODO: Sleep _after_ calling the callback(). For this callback needs to be Rc<RefCell<... borrowed as well because we have to move it into the async block.
+                        sleep(std::time::Duration::from_millis(15)).await;
+                        let _ = web_sys::window().unwrap().request_animation_frame(
+                            h.borrow().as_ref().unwrap().as_ref().unchecked_ref(),
+                        );
+                    });
                 } else {
                     // Drop the closure.
                     f.borrow_mut().take();
